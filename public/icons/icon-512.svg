@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+  <!-- Background -->
+  <rect width="512" height="512" rx="100" fill="#2563EB"/>
+  <!-- Calendar body -->
+  <rect x="104" y="148" width="304" height="260" rx="28" fill="white" opacity="0.15"/>
+  <rect x="104" y="148" width="304" height="260" rx="28" fill="none" stroke="white" stroke-width="14"/>
+  <!-- Calendar header bar -->
+  <rect x="104" y="148" width="304" height="72" rx="28" fill="white" opacity="0.25"/>
+  <rect x="104" y="192" width="304" height="28" fill="white" opacity="0.25"/>
+  <!-- Hanger pegs -->
+  <line x1="188" y1="112" x2="188" y2="182" stroke="white" stroke-width="18" stroke-linecap="round"/>
+  <line x1="324" y1="112" x2="324" y2="182" stroke="white" stroke-width="18" stroke-linecap="round"/>
+  <!-- Grid dots representing days -->
+  <circle cx="178" cy="288" r="16" fill="white"/>
+  <circle cx="256" cy="288" r="16" fill="white"/>
+  <circle cx="334" cy="288" r="16" fill="white"/>
+  <circle cx="178" cy="348" r="16" fill="white"/>
+  <circle cx="256" cy="348" r="16" fill="white"/>
+  <circle cx="334" cy="348" r="16" fill="white" opacity="0.35"/>
+  <!-- Flow highlight dot (accent) -->
+  <circle cx="256" cy="288" r="26" fill="#FBBF24"/>
+</svg>

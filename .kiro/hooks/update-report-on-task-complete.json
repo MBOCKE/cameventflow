@@ -1,0 +1,14 @@
+{
+  "version": "v1",
+  "hooks": [
+    {
+      "name": "Update Report on Task Complete",
+      "trigger": "PostTaskExec",
+      "description": "After each completed spec task, updates the report.md with what was done.",
+      "action": {
+        "type": "agent",
+        "prompt": "A spec task in CamEventFlow just completed. Update report.md by appending a new entry under the relevant Day section. Include:\n- Task name\n- Files created or modified\n- Any important decisions made\n- Any integration holes touched or implemented\nKeep the entry concise (bullet points). Do not rewrite existing report content."
+      }
+    }
+  ]
+}

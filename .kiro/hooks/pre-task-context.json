@@ -1,0 +1,14 @@
+{
+  "version": "v1",
+  "hooks": [
+    {
+      "name": "Pre-Task Project Context",
+      "trigger": "PreTaskExec",
+      "description": "Injects project context and planning step before each spec task begins.",
+      "action": {
+        "type": "agent",
+        "prompt": "A new task in the CamEventFlow spec is starting. Before writing any code:\n1. Check which Day we are on in .kiro/specs/cameventflow.md (look at the unchecked items).\n2. Review the relevant integration hole comments in the codebase if the task involves Mapbox, TalkJS, or Make.com.\n3. Confirm you will follow all rules in .kiro/steering/project.md (Server Components by default, max-w-md mx-auto, auth pattern, pinned deps, no open hole removal).\n4. State what files you plan to create or modify before proceeding."
+      }
+    }
+  ]
+}

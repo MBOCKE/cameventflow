@@ -1,0 +1,69 @@
+# ─────────────────────────────────────────────────────────────────────────────
+#  CamEventFlow – .gitignore
+# ─────────────────────────────────────────────────────────────────────────────
+
+# ── Environment variables ─────────────────────────────────────────────────────
+# NEVER commit secrets. Only .env.example (no real values) should be tracked.
+.env
+.env.local
+.env.development
+.env.development.local
+.env.test
+.env.test.local
+.env.production
+.env.production.local
+
+# ── Next.js build output ──────────────────────────────────────────────────────
+.next/
+out/
+
+# ── Node.js ───────────────────────────────────────────────────────────────────
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# ── Prisma ────────────────────────────────────────────────────────────────────
+# Generated client – rebuilt by `prisma generate`, no need to track
+prisma/generated/
+
+# ── TypeScript ────────────────────────────────────────────────────────────────
+*.tsbuildinfo
+next-env.d.ts
+
+# ── Testing ───────────────────────────────────────────────────────────────────
+coverage/
+.nyc_output/
+
+# ── OS & editor artifacts ─────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+Desktop.ini
+*.swp
+*.swo
+*~
+
+# ── IDEs ──────────────────────────────────────────────────────────────────────
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+
+# ── Vercel ────────────────────────────────────────────────────────────────────
+.vercel
+
+# ── Supabase local dev ────────────────────────────────────────────────────────
+supabase/.temp/
+supabase/functions/.cache/
+
+# ── Misc build / cache ────────────────────────────────────────────────────────
+.cache/
+.parcel-cache/
+dist/
+build/
+*.log
