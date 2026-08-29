@@ -1,14 +1,15 @@
 "use client";
 
 // app/signup/page.tsx  –  Sign Up  (/signup)
-// Creates a Supabase auth account then immediately POSTs to /api/users
-// to create the internal PostgreSQL User row.
 
 import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Eye, EyeOff, Loader2, CalendarDays, Building2, User } from "lucide-react";
-import { createBrowserClient } from "@/lib/supabase";
+import {
+  Eye, EyeOff, Loader2, CalendarDays,
+  Building2, User, MailCheck,
+} from "lucide-react";
+import { createBrowserClient } from "@/lib/supabase.client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -34,6 +35,9 @@ export default function SignupPage() {
   const [showPw, setShowPw]     = useState(false);
   const [loading, setLoading]   = useState(false);
   const [error, setError]       = useState<string | null>(null);
+  // When Supabase requires email confirmation, we show this screen instead
+  // of redirecting so the user knows what to do next.
+  const [awaitingConfirmation, setAwaitingConfirmation] = useState(false);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -42,12 +46,10 @@ export default function SignupPage() {
 
     const supabase = createBrowserClient();
 
-    // 1. Create Supabase auth account
     const { data, error: authError } = await supabase.auth.signUp({
       email,
       password,
       options: {
-        // Pass role and name as metadata so the callback can use them
         data: { name, role },
         emailRedirectTo: `${window.location.origin}/api/auth/callback`,
       },
@@ -59,9 +61,16 @@ export default function SignupPage() {
       return;
     }
 
-    // 2. If a session was returned immediately (email confirm disabled),
-    //    create the DB user row right now. Otherwise the callback route handles it.
-    if (data.user) {
+    // Supabase returns a user but NO session when email confirmation is on.
+    // data.session === null means "check your inbox".
+    if (data.user && !data.session) {
+      setAwaitingConfirmation(true);
+      setLoading(false);
+      return;
+    }
+
+    // Session exists → email confirmation is disabled, user is signed in now.
+    if (data.user && data.session) {
       try {
         await fetch("/api/users", {
           method:  "POST",
@@ -74,25 +83,62 @@ export default function SignupPage() {
           }),
         });
       } catch {
-        // Non-fatal – the callback or onAuthStateChange will retry
         console.warn("[signup] /api/users call failed; will retry via onAuthStateChange.");
       }
-    }
 
-    // 3. Redirect based on role
-    if (role === "VENDOR") {
-      router.push("/onboarding/vendor");
-    } else {
-      router.push("/dashboard");
+      router.push(role === "VENDOR" ? "/onboarding/vendor" : "/dashboard");
+      router.refresh();
     }
-    router.refresh();
   }
 
+  // ── Email confirmation waiting screen ─────────────────────────────────────
+  if (awaitingConfirmation) {
+    return (
+      <div className="min-h-screen flex items-center justify-center px-4 bg-background">
+        <div className="w-full max-w-md space-y-6 text-center">
+          <div className="flex flex-col items-center gap-3">
+            <div className="flex h-16 w-16 items-center justify-center rounded-full bg-primary/10">
+              <MailCheck className="h-8 w-8 text-primary" aria-hidden="true" />
+            </div>
+            <h1 className="text-2xl font-bold">Check your email</h1>
+            <p className="text-muted-foreground text-sm max-w-xs">
+              We sent a confirmation link to{" "}
+              <span className="font-medium text-foreground">{email}</span>.
+              Click it to activate your account, then come back and sign in.
+            </p>
+          </div>
+
+          <Card>
+            <CardContent className="pt-6 space-y-3">
+              <p className="text-xs text-muted-foreground">
+                Didn&apos;t receive the email? Check your spam folder, or{" "}
+                <button
+                  className="text-primary underline underline-offset-2"
+                  onClick={async () => {
+                    const supabase = createBrowserClient();
+                    await supabase.auth.resend({ type: "signup", email });
+                    alert("Confirmation email resent.");
+                  }}
+                >
+                  resend it
+                </button>
+                .
+              </p>
+              <Button asChild variant="outline" className="w-full">
+                <Link href="/login">Go to Sign In</Link>
+              </Button>
+            </CardContent>
+          </Card>
+        </div>
+      </div>
+    );
+  }
+
+  // ── Sign up form ──────────────────────────────────────────────────────────
   return (
     <div className="min-h-screen flex items-center justify-center px-4 bg-background">
       <div className="w-full max-w-md space-y-6">
 
-        {/* Logo */}
         <div className="flex flex-col items-center gap-2 text-center">
           <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-primary">
             <CalendarDays className="h-6 w-6 text-white" aria-hidden="true" />
@@ -104,9 +150,7 @@ export default function SignupPage() {
         <Card>
           <CardHeader>
             <CardTitle>Get started</CardTitle>
-            <CardDescription>
-              Choose your role, then fill in your details.
-            </CardDescription>
+            <CardDescription>Choose your role, then fill in your details.</CardDescription>
           </CardHeader>
 
           <form onSubmit={handleSubmit}>
@@ -192,14 +236,11 @@ export default function SignupPage() {
                     aria-label={showPw ? "Hide password" : "Show password"}
                     className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
                   >
-                    {showPw
-                      ? <EyeOff className="h-4 w-4" />
-                      : <Eye className="h-4 w-4" />}
+                    {showPw ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                   </button>
                 </div>
               </div>
 
-              {/* Error */}
               {error && (
                 <p className="text-sm text-destructive" role="alert">{error}</p>
               )}

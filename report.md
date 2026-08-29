@@ -1,7 +1,7 @@
 # CamEventFlow – Build Report
 
 > Generated iteratively as each task was completed.  
-> Last updated: Day 4 (pivot) – Mapbox → OpenStreetMap / react-leaflet (19 August 2026)
+> Last updated: Database layer stabilised on MySQL / XAMPP (24 August 2026)
 
 ---
 
@@ -904,6 +904,7 @@ These settings must be applied in the Supabase dashboard — they cannot be set 
 ## ✅ Day 4 (Pivot) – Mapbox → OpenStreetMap / react-leaflet
 
 ### Reason for pivot
+
 Mapbox account creation was blocked. The map was switched to **react-leaflet + OpenStreetMap** which requires zero API keys and is fully open-source.
 
 ---
@@ -911,13 +912,15 @@ Mapbox account creation was blocked. The map was switched to **react-leaflet + O
 ### Changes
 
 #### `package.json`
-| Removed | Added |
-|---|---|
-| `mapbox-gl@^3.7.0` | `leaflet@^1.9.4` |
-| `react-map-gl@^7.1.7` | `react-leaflet@^4.2.1` |
+
+| Removed                         | Added                          |
+| ------------------------------- | ------------------------------ |
+| `mapbox-gl@^3.7.0`              | `leaflet@^1.9.4`               |
+| `react-map-gl@^7.1.7`           | `react-leaflet@^4.2.1`         |
 | `@types/mapbox-gl@^3.4.0` (dev) | `@types/leaflet@^1.9.14` (dev) |
 
 #### `app/discover/DiscoverMapClient.tsx` (rewritten)
+
 - All `react-map-gl` imports removed.
 - All `NEXT_PUBLIC_MAPBOX_TOKEN` and `/api/map-token` fetch logic removed.
 - Map now renders immediately with zero configuration.
@@ -927,6 +930,7 @@ Mapbox account creation was blocked. The map was switched to **react-leaflet + O
 - All overlay UI (search bar, filter pills, legend) uses `z-[1000]` to sit above Leaflet's default `z-index: 400` tiles.
 
 #### `app/discover/LeafletMap.tsx` (new)
+
 - `"use client"` module, **never SSR'd** (loaded only via `dynamic()`).
 - Imports `leaflet/dist/leaflet.css` for tile + control styles.
 - Fixes Leaflet's broken default icon paths in webpack by pointing `L.Icon.Default` at the unpkg CDN images.
@@ -938,10 +942,12 @@ Mapbox account creation was blocked. The map was switched to **react-leaflet + O
 - Pin `iconAnchor: [18, 36]` anchors at the bottom-centre; `popupAnchor: [0, -36]` opens the popup above.
 
 #### `app/globals.css` (updated)
+
 - Added `.leaflet-popup-reset` CSS rules: strips Leaflet's default white popup chrome so `EventPopupCard`'s own border/shadow design shows through.
 - Added `@keyframes leaflet-pin-pulse` for the LIVE pin ring animation.
 
 #### `.env.example` (updated)
+
 - Removed `NEXT_PUBLIC_MAPBOX_TOKEN` as a map requirement; kept it with a note that it is only needed by `MapboxVenuePicker` for address geocoding in the booking modal.
 - Added `NEXT_PUBLIC_OSM_TILE_URL` (optional override for the OpenStreetMap tile server).
 - Added `NEXT_PUBLIC_SITE_URL` (used by `metadataBase` in `app/layout.tsx`).
@@ -950,6 +956,7 @@ Mapbox account creation was blocked. The map was switched to **react-leaflet + O
 ---
 
 ### Architecture notes
+
 - **No API key ever needed** for the map — OpenStreetMap tiles are free.
 - The geocoding venue picker in `BookingModal` still calls the Mapbox Geocoding REST API. If Mapbox access remains blocked, replace `components/MapboxVenuePicker.tsx` with a [Nominatim](https://nominatim.openstreetmap.org/ui/search.html)-backed component (free, no key) and remove `NEXT_PUBLIC_MAPBOX_TOKEN` entirely.
 - `react-leaflet` v4 requires React 18+; compatible with the project's React 19.
@@ -957,8 +964,296 @@ Mapbox account creation was blocked. The map was switched to **react-leaflet + O
 ---
 
 ### Run after this change
+
 ```bash
 npm install          # picks up leaflet + react-leaflet, removes mapbox-gl + react-map-gl
 npm run dev          # map should render immediately at /discover
 npm run db:seed      # re-seed events if DB was reset
 ```
+
+---
+
+## ✅ Day 5 – Database Provider Migration: Supabase → Neon
+
+### Reason
+
+Persistent `P1001` (unreachable) and authentication errors with the Supabase direct PostgreSQL connection. Supabase Auth and Storage are retained — only the database layer moves to Neon.
+
+### Architecture after migration
+
+| Layer    | Provider                         | Purpose                              |
+| -------- | -------------------------------- | ------------------------------------ |
+| Database | **Neon** (serverless PostgreSQL) | All Prisma queries, migrations, seed |
+| Auth     | **Supabase** (unchanged)         | Sign-up, sign-in, session cookies    |
+| Storage  | **Supabase** (unchanged)         | `vendor-images` bucket               |
+
+---
+
+### Changes
+
+#### `prisma/schema.prisma`
+
+- Header comment updated: "PostgreSQL via Neon (serverless)"
+- `directUrl = env("DATABASE_URL")` → `directUrl = env("DIRECT_URL")`
+- Inline comments explain the purpose of each URL variable
+
+```prisma
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")   // pooled  – runtime
+  directUrl = env("DIRECT_URL")     // direct  – Prisma CLI
+}
+```
+
+#### `package.json`
+
+- `"build"` script updated to `"prisma generate && next build"` so Vercel always regenerates the Prisma client before the Next.js build. This prevents stale client errors after schema changes.
+
+#### `.env.example`
+
+- `DATABASE_URL` and `DIRECT_URL` documented with Neon URL shapes
+- Detailed comments explaining pooled vs direct distinction and how to get both URLs from the Neon console
+- Old single Supabase `DATABASE_URL` removed
+- All other variables unchanged
+
+#### `.env`
+
+- Old Supabase `DATABASE_URL` line replaced with Neon placeholder block (`DATABASE_URL` + `DIRECT_URL`)
+- Supabase Auth keys (`NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`) left untouched
+
+---
+
+### Why two connection strings?
+
+|          | `DATABASE_URL` (pooled)                                                  | `DIRECT_URL` (direct)                                                                     |
+| -------- | ------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------- |
+| Hostname | `<host>-pooler.<region>.aws.neon.tech`                                   | `<host>.<region>.aws.neon.tech`                                                           |
+| Port     | `5432`                                                                   | `5432`                                                                                    |
+| Used by  | Next.js app at runtime                                                   | Prisma CLI only                                                                           |
+| Why      | PgBouncer multiplexes connections — essential for serverless cold starts | Migrations require a persistent session; PgBouncer transaction mode breaks DDL statements |
+
+---
+
+### Setup steps (fill in after creating your Neon project)
+
+```
+1. console.neon.tech → New Project → choose a region close to your users
+2. Connection Details → toggle Pooled ON  → copy → paste as DATABASE_URL in .env
+3. Connection Details → toggle Pooled OFF → copy → paste as DIRECT_URL in .env
+4. npx prisma db push          (applies schema to Neon)
+5. npm run db:seed             (seeds 5 demo events)
+6. npm run dev                 (verify app connects)
+```
+
+No code changes are needed anywhere else — `lib/prisma.ts`, all API routes, and the seed script all use the `prisma` singleton which now points to Neon automatically.
+
+---
+
+## ✅ Day 5 (Final) – Database Migration: Neon → Turso (libSQL)
+
+### Reason
+
+Persistent P1013 connection string errors with both Supabase direct and Neon pooled PostgreSQL endpoints. Turso uses libSQL (SQLite-compatible, serverless) with a simple URL + token auth model that has no connection pooler complexities.
+
+### Architecture after migration
+
+| Layer    | Provider                    | Purpose                              |
+| -------- | --------------------------- | ------------------------------------ |
+| Database | **Turso** (libSQL / SQLite) | All Prisma queries, migrations, seed |
+| Auth     | **Supabase** (unchanged)    | Sign-up, sign-in, session cookies    |
+| Storage  | **Supabase** (unchanged)    | `vendor-images` bucket               |
+
+---
+
+### Files changed
+
+#### `package.json`
+
+Added to `dependencies`:
+
+- `@libsql/client@^0.14.0` — Turso's official libSQL JavaScript client
+- `@prisma/adapter-libsql@^5.22.0` — Prisma driver adapter for libSQL
+
+No removals — `@prisma/client` and `prisma` remain at the same versions.
+
+#### `prisma/schema.prisma`
+
+| Before                          | After                                     |
+| ------------------------------- | ----------------------------------------- |
+| `provider = "postgresql"`       | `provider = "sqlite"`                     |
+| `url = env("DATABASE_URL")`     | `url = env("TURSO_DATABASE_URL")`         |
+| `directUrl = env("DIRECT_URL")` | removed (not needed with adapter)         |
+| Prisma enum types               | `String` fields with valid-value comments |
+| `previewFeatures` absent        | `previewFeatures = ["driverAdapters"]`    |
+
+**Why enums became Strings:** SQLite has no native `ENUM` type. Prisma's sqlite provider does not support enum declarations. Valid values are enforced at the application layer (API route validation) and documented inline in the schema.
+
+#### `lib/prisma.ts`
+
+Complete rewrite using the driver adapter pattern:
+
+```ts
+const libsql = createClient({ url, authToken });
+const adapter = new PrismaLibSQL(libsql);
+export const prisma = new PrismaClient({ adapter });
+```
+
+- `createClient` from `@libsql/client` handles both `libsql://` (remote Turso) and `file://` (local dev) URLs transparently.
+- `authToken` is only passed when set — file-based URLs don't require it.
+- Singleton pattern retained for Next.js hot-reload safety.
+- Dev logging (`query`, `error`, `warn`) retained.
+
+#### `prisma/seed.ts`
+
+- Imports `PrismaLibSQL` + `createClient` and builds the adapter directly (same pattern as `lib/prisma.ts`).
+- All enum string literals changed from TypeScript `as const` casts to plain strings (`"VENDOR"`, `"LIVE"`, etc.) since the schema no longer has enum types.
+- `latitude` and `longitude` explicitly cast with `parseFloat()` to guarantee numeric storage.
+- `Date` objects passed directly — Prisma's libSQL adapter converts them to ISO-8601 text.
+
+#### `.env`
+
+- `DATABASE_URL` and `DIRECT_URL` removed.
+- Added `TURSO_DATABASE_URL` and `TURSO_AUTH_TOKEN` placeholders.
+
+#### `.env.example`
+
+- Old Neon PostgreSQL block replaced with Turso block.
+- Step-by-step Turso CLI setup instructions included.
+- All other variables (Supabase, OSM, Mapbox, TalkJS, Make.com, site URL) unchanged.
+
+---
+
+### Setup steps
+
+```bash
+# 1. Install new dependencies
+npm install
+
+# 2. Fill in your Turso credentials in .env
+#    Get them from: turso.tech (free tier) or use local file for dev:
+#    TURSO_DATABASE_URL="file:./dev.db"
+#    TURSO_AUTH_TOKEN=""
+
+# 3. Generate the Prisma client with the new schema
+npx prisma generate
+
+# 4. Push schema to Turso (creates tables)
+npx prisma db push
+
+# 5. Seed demo events
+npm run db:seed
+
+# 6. Start dev server
+npm run dev
+```
+
+### Local development without a Turso account
+
+Set these two lines in `.env` to use a local SQLite file — no signup needed:
+
+```
+TURSO_DATABASE_URL="file:./dev.db"
+TURSO_AUTH_TOKEN=""
+```
+
+Then run `npx prisma db push` and `npm run db:seed` as normal.
+
+---
+
+## ✅ Database Layer Stabilisation – MySQL / XAMPP (Final local dev state)
+
+### Journey summary
+
+The database provider went through three iterations before landing on a stable local setup:
+
+| Attempt         | Provider                     | Outcome                                                                     |
+| --------------- | ---------------------------- | --------------------------------------------------------------------------- |
+| 1               | Supabase PostgreSQL (direct) | `P1001` unreachable / `P1013` auth errors                                   |
+| 2               | Neon serverless PostgreSQL   | Persistent pooler connection timeouts                                       |
+| 3               | Turso (libSQL / SQLite)      | Working, but SQLite limitations (no enums, text coercions) created friction |
+| **4 (current)** | **MySQL via XAMPP**          | **Stable – full local dev, zero cloud dependency**                          |
+
+---
+
+### Changes applied in this session
+
+#### `package.json`
+
+Removed all adapter/driver packages that are no longer needed for standard MySQL:
+
+| Removed                     | Reason                                                                  |
+| --------------------------- | ----------------------------------------------------------------------- |
+| `@libsql/client`            | Turso libSQL client – not needed for MySQL                              |
+| `@prisma/adapter-libsql`    | Turso driver adapter – not needed for MySQL                             |
+| `@tidbcloud/prisma-adapter` | TiDB Cloud adapter – premature; will be re-added when deploying to TiDB |
+| `@tidbcloud/serverless`     | TiDB Cloud serverless driver – same as above                            |
+
+The `build` script `prisma generate && next build` and the `ts-node` seed config remain unchanged.
+
+#### `prisma/schema.prisma`
+
+Already correct from the previous session — confirmed clean:
+
+- `provider = "mysql"`
+- `url = env("DATABASE_URL")`
+- No `previewFeatures` (removed `"driverAdapters"` that was needed for libSQL)
+- `description` and `message` fields use `@db.Text` to avoid MySQL's `utf8mb4` 191-char `VARCHAR` index limit
+- All constrained string fields (`role`, `category`, `city`, `activeStatus`, `status`) use `String` with valid-value comments — compatible with both MySQL and TiDB Cloud
+
+#### `lib/prisma.ts`
+
+Already correct — standard `new PrismaClient()` singleton with no adapter imports. Dev logging enabled in development mode.
+
+#### `prisma/seed.ts`
+
+Already correct — standard `new PrismaClient()`, plain `Date` objects for timestamps, numeric literals for `latitude`/`longitude`. No libSQL adapter code.
+
+#### `.env`
+
+Already correct — `DATABASE_URL="mysql://root:@127.0.0.1:3306/cameventflow"`. All Turso variables removed. All Supabase, TalkJS, Make.com, and site URL variables untouched.
+
+---
+
+### Current architecture
+
+| Layer                      | Provider                          | How                                                    |
+| -------------------------- | --------------------------------- | ------------------------------------------------------ |
+| Database (local dev)       | **MySQL via XAMPP**               | `DATABASE_URL` in `.env`                               |
+| Database (production path) | **TiDB Cloud** (MySQL-compatible) | Same schema, swap connection string + add TiDB adapter |
+| Auth                       | **Supabase**                      | `lib/supabase.ts`, `middleware.ts`                     |
+| Storage                    | **Supabase**                      | `vendor-images` bucket                                 |
+| Map                        | **OpenStreetMap** (react-leaflet) | No API key required                                    |
+| Messaging                  | **TalkJS**                        | `components/TalkJSChat.tsx`                            |
+| Notifications              | **Make.com**                      | `lib/make.ts`, `app/api/automate/route.ts`             |
+
+---
+
+### Commands to run after any fresh clone or `npm install`
+
+```powershell
+# 1. Ensure XAMPP MySQL is running and 'cameventflow' database exists in phpMyAdmin
+
+# 2. Install dependencies (libSQL packages are gone, install is faster)
+npm install
+
+# 3. Generate Prisma client for MySQL provider
+npx prisma generate
+
+# 4. Push schema to local MySQL (creates tables)
+npx prisma db push
+
+# 5. Seed 5 demo events
+npm run db:seed
+
+# 6. Start dev server
+npm run dev
+```
+
+### Future TiDB Cloud migration (when ready)
+
+1. Create a TiDB Cloud Serverless cluster
+2. Update `DATABASE_URL` in `.env` (and Vercel env vars) to the TiDB connection string
+3. Re-add `@tidbcloud/prisma-adapter` and `@tidbcloud/serverless` to `package.json`
+4. Add `previewFeatures = ["driverAdapters"]` back to the generator block
+5. Update `lib/prisma.ts` to use the TiDB adapter (same pattern as the previous libSQL implementation)
+6. No schema changes required — the MySQL-compatible schema works as-is on TiDB

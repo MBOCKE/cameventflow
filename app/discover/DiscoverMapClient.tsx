@@ -2,21 +2,17 @@
 
 // app/discover/DiscoverMapClient.tsx
 // Full-screen Snap-Map style event discovery page.
-//
 // Map engine: react-leaflet v4 + OpenStreetMap tiles (no API key required).
-// Falls back to <StaticMapFallback> if Leaflet fails to mount (SSR guard).
 
-import "leaflet/dist/leaflet.css";
+// NOTE: leaflet/dist/leaflet.css is imported ONLY inside LeafletMap.tsx
+// (the dynamic boundary). Importing it here caused Leaflet to partially
+// initialise at module load time and throw "Map container already initialized".
+
 import { useEffect, useState, useCallback } from "react";
-import { useRouter } from "next/navigation";
-// react-leaflet is browser-only; we import dynamically so Next.js SSR
-// never tries to execute it on the server.
 import dynamic from "next/dynamic";
 import { MapPin, X, Clock, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { GlobalSearchBar } from "@/components/GlobalSearchBar";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 
 // ── Dynamic import of Leaflet components (browser-only) ───────────────────────
 // We wrap the real map in a dynamic import so it is never rendered on the server.
@@ -144,7 +140,9 @@ function StaticMapFallback({
 }
 
 // ── Event popup card ─────────────────────────────────────────────────────────
-// Exported so LeafletMap (a sibling module) can import it too.
+// Exported so LeafletMap renders it via createRoot() outside the App Router
+// context tree. MUST NOT use useRouter or any context-dependent hook.
+// Navigation uses window.location.href instead.
 export function EventPopupCard({
   event,
   onClose,
@@ -152,52 +150,65 @@ export function EventPopupCard({
   event: EventPin;
   onClose: () => void;
 }) {
-  const router = useRouter();
   const isLive = event.activeStatus === "LIVE";
 
   return (
     <div
-      className="w-72 rounded-2xl bg-background shadow-2xl border overflow-hidden"
+      className="w-72 rounded-2xl bg-white shadow-2xl border overflow-hidden"
       role="dialog"
       aria-label={`Event details: ${event.user.name}`}
     >
-      <div className={cn("h-1.5 w-full", isLive ? "bg-red-500" : "bg-amber-400")} />
+      <div style={{ height: 6, background: isLive ? "#ef4444" : "#f59e0b" }} />
       <div className="p-4 space-y-3">
+
         {/* Header */}
         <div className="flex items-start justify-between gap-2">
           <div className="space-y-1">
             <div className="flex items-center gap-2">
-              {isLive ? (
-                <Badge
-                  variant="destructive"
-                  className="text-xs px-2 py-0.5 uppercase tracking-wide"
-                >
-                  🔴 Live
-                </Badge>
-              ) : (
-                <Badge
-                  variant="warning"
-                  className="text-xs px-2 py-0.5 uppercase tracking-wide"
-                >
-                  Upcoming
-                </Badge>
-              )}
-              <span className="text-xs text-muted-foreground">{event.category}</span>
+              <span
+                style={{
+                  display:       "inline-flex",
+                  alignItems:    "center",
+                  padding:       "2px 8px",
+                  borderRadius:  "9999px",
+                  fontSize:      "11px",
+                  fontWeight:    700,
+                  textTransform: "uppercase",
+                  letterSpacing: "0.05em",
+                  background:    isLive ? "#fef2f2" : "#fffbeb",
+                  color:         isLive ? "#dc2626" : "#d97706",
+                }}
+              >
+                {isLive ? "🔴 Live" : "🟡 Upcoming"}
+              </span>
+              <span style={{ fontSize: 11, color: "#6b7280" }}>{event.category}</span>
             </div>
-            <h3 className="font-semibold text-sm leading-tight">{event.user.name}</h3>
+            <h3 style={{ fontWeight: 600, fontSize: 14, lineHeight: 1.3, margin: 0 }}>
+              {event.user.name}
+            </h3>
           </div>
+
           <button
             onClick={onClose}
             aria-label="Close event details"
-            className="flex-shrink-0 rounded-full p-1 text-muted-foreground hover:bg-muted transition-colors"
+            style={{
+              flexShrink:   0,
+              borderRadius: "9999px",
+              padding:      4,
+              border:       "none",
+              background:   "transparent",
+              cursor:       "pointer",
+              color:        "#9ca3af",
+              display:      "flex",
+            }}
           >
             <X className="h-4 w-4" />
           </button>
         </div>
 
         {/* Time */}
-        <div className="flex items-center gap-2 text-xs text-muted-foreground">
-          <Clock className="h-3.5 w-3.5 flex-shrink-0" aria-hidden="true" />
+        <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: "#6b7280" }}>
+          <Clock className="h-3.5 w-3.5" style={{ flexShrink: 0 }} />
           <span>
             {event.eventStartTime
               ? `${formatDate(event.eventStartTime)} · ${formatTime(event.eventStartTime)} – ${formatTime(event.eventEndTime)}`
@@ -205,21 +216,34 @@ export function EventPopupCard({
           </span>
         </div>
 
-        {/* Location */}
-        <div className="flex items-center gap-2 text-xs text-muted-foreground">
-          <MapPin className="h-3.5 w-3.5 flex-shrink-0" aria-hidden="true" />
+        {/* City */}
+        <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: "#6b7280" }}>
+          <MapPin className="h-3.5 w-3.5" style={{ flexShrink: 0 }} />
           <span>{event.city}</span>
         </div>
 
-        {/* CTA */}
-        <Button
-          size="sm"
-          className="w-full"
-          onClick={() => router.push(`/vendors/${event.id}`)}
+        {/* CTA — plain anchor, no router needed */}
+        <a
+          href={`/vendors/${event.id}`}
+          style={{
+            display:        "flex",
+            alignItems:     "center",
+            justifyContent: "center",
+            gap:            4,
+            width:          "100%",
+            padding:        "8px 0",
+            borderRadius:   8,
+            background:     "#2563EB",
+            color:          "#fff",
+            fontWeight:     600,
+            fontSize:       13,
+            textDecoration: "none",
+            cursor:         "pointer",
+          }}
         >
           View Details
-          <ChevronRight className="h-3.5 w-3.5 ml-1" aria-hidden="true" />
-        </Button>
+          <ChevronRight style={{ width: 14, height: 14 }} />
+        </a>
       </div>
     </div>
   );
@@ -282,7 +306,7 @@ export function DiscoverMapClient() {
           selectedId={selectedEvent?.id ?? null}
         />
       ) : (
-        /* Real Leaflet map — dynamically imported, never SSR'd */
+        /* Real Leaflet map — raw imperative API, initialised once */
         <LeafletMap
           events={filteredEvents}
           selectedEvent={selectedEvent}
@@ -293,16 +317,18 @@ export function DiscoverMapClient() {
       )}
 
       {/* ── Floating search bar ──────────────────────────────────────── */}
-      <div className="absolute top-4 left-4 right-4 z-[1000]">
-        <GlobalSearchBar
-          placeholder="Search events & vendors…"
-          className="drop-shadow-xl"
-        />
+      <div className="absolute top-4 left-4 right-4 z-[1000] pointer-events-none">
+        <div className="pointer-events-auto">
+          <GlobalSearchBar
+            placeholder="Search events & vendors…"
+            className="drop-shadow-xl"
+          />
+        </div>
       </div>
 
       {/* ── Filter pills ─────────────────────────────────────────────── */}
       <div
-        className="absolute top-20 left-4 z-[1000] flex gap-2"
+        className="absolute top-20 left-4 z-[1000] flex gap-2 pointer-events-none"
         role="group"
         aria-label="Filter events"
       >
@@ -314,14 +340,14 @@ export function DiscoverMapClient() {
               setSelectedEvent(null);
             }}
             className={cn(
-              "rounded-full px-3 py-1.5 text-xs font-semibold shadow-md transition-colors backdrop-blur-sm",
+              "pointer-events-auto rounded-full px-3 py-1.5 text-xs font-semibold shadow-md transition-all duration-150 backdrop-blur-sm",
               filter === f
                 ? f === "LIVE"
-                  ? "bg-red-500 text-white"
+                  ? "bg-red-500 text-white ring-2 ring-white ring-offset-1 ring-offset-transparent scale-105"
                   : f === "UPCOMING"
-                  ? "bg-amber-400 text-gray-900"
-                  : "bg-primary text-white"
-                : "bg-black/50 text-white/80 hover:bg-black/70"
+                  ? "bg-amber-400 text-gray-900 ring-2 ring-white ring-offset-1 ring-offset-transparent scale-105"
+                  : "bg-primary text-white ring-2 ring-white ring-offset-1 ring-offset-transparent scale-105"
+                : "bg-black/50 text-white/70 hover:bg-black/70 hover:text-white"
             )}
           >
             {f === "ALL"
@@ -334,7 +360,7 @@ export function DiscoverMapClient() {
       </div>
 
       {/* ── Legend (bottom-left) ─────────────────────────────────────── */}
-      <div className="absolute bottom-6 left-4 z-[1000] flex flex-col gap-1.5 rounded-xl bg-black/60 px-3 py-2.5 backdrop-blur-sm text-white text-xs">
+      <div className="absolute bottom-6 left-4 z-[1000] pointer-events-none flex flex-col gap-1.5 rounded-xl bg-black/60 px-3 py-2.5 backdrop-blur-sm text-white text-xs">
         <div className="flex items-center gap-2">
           <span className="h-3 w-3 rounded-full bg-red-500" />
           Live now

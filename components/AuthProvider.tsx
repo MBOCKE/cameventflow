@@ -5,7 +5,7 @@
 // Renders nothing — purely a side-effect component.
 
 import { useEffect } from "react";
-import { initAuthListener } from "@/lib/supabase";
+import { initAuthListener } from "@/lib/supabase.client";
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {

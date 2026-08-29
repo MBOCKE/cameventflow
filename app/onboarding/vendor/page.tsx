@@ -13,7 +13,7 @@ import {
   Building2, Check, ChevronRight, ChevronLeft,
   Loader2, MapPin, Upload, ImageIcon,
 } from "lucide-react";
-import { createBrowserClient } from "@/lib/supabase";
+import { createBrowserClient } from "@/lib/supabase.client";
 import { useVendorOnboardingStore, type VendorCategory, type VendorCity } from "@/lib/stores/useVendorOnboardingStore";
 import { MapboxVenuePicker } from "@/components/MapboxVenuePicker";
 import { Button } from "@/components/ui/button";

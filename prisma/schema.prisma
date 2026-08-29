@@ -1,110 +1,87 @@
 // CamEventFlow – Prisma Schema
-// PostgreSQL + Supabase
+// Database : MySQL via XAMPP (local dev) → TiDB Cloud (production)
+// Auth     : Supabase (unchanged)
+// Storage  : Supabase (unchanged)
 
 generator client {
   provider = "prisma-client-js"
 }
 
 datasource db {
-  provider  = "postgresql"
-  url       = env("DATABASE_URL")
-  directUrl = env("DATABASE_URL")
+  provider = "mysql"
+  // Local XAMPP:  mysql://root:@127.0.0.1:3306/cameventflow
+  // TiDB Cloud:   mysql://<user>:<password>@<host>:4000/cameventflow?sslaccept=strict
+  url      = env("DATABASE_URL")
 }
 
-// ─────────────────────────────────────────────
-// Enums
-// ─────────────────────────────────────────────
-
-enum Role {
-  PLANNER
-  VENDOR
-}
-
-enum VendorCategory {
-  Venue
-  Caterer
-  Decorator
-  Sound
-  Photographer
-}
-
-enum City {
-  Douala
-  Yaounde
-  Buea
-}
-
-enum BookingStatus {
-  PENDING
-  CONFIRMED
-  CANCELED
-}
-
-enum ActiveStatus {
-  LIVE
-  UPCOMING
-  ENDED
-}
-
-// ─────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
 // Models
-// ─────────────────────────────────────────────
+// MySQL supports native ENUM; we keep String fields with valid-value comments
+// so switching to TiDB Cloud (MySQL-compatible) requires zero schema changes.
+// ─────────────────────────────────────────────────────────────────────────────
 
 model User {
-  id          String   @id @default(cuid())
-  supabaseId  String   @unique
-  email       String   @unique
-  phone       String?
-  name        String
-  role        Role     @default(PLANNER)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id         String   @id @default(cuid())
+  supabaseId String   @unique
+  email      String   @unique
+  phone      String?
+  name       String
+  // Valid values: "PLANNER" | "VENDOR"
+  role       String   @default("PLANNER")
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
 
   // Relations
-  vendor      Vendor?           // A VENDOR user has one vendor profile
-  bookings    Booking[]         // A PLANNER user has many bookings (as planner)
+  vendor   Vendor?   // A VENDOR user has one vendor profile
+  bookings Booking[] // A PLANNER user has many bookings (as planner)
 
   @@map("users")
 }
 
 model Vendor {
-  id              String         @id @default(cuid())
-  userId          String         @unique
-  category        VendorCategory
-  city            City
+  id              String   @id @default(cuid())
+  userId          String   @unique
+  // Valid values: "Venue" | "Caterer" | "Decorator" | "Sound" | "Photographer"
+  category        String
+  // Valid values: "Douala" | "Yaounde" | "Buea"
+  city            String
   basePrice       Float
-  availability    Boolean        @default(true)
-  description     String
+  availability    Boolean  @default(true)
+  // TEXT used for description so MySQL's 191-char index limit on VARCHAR
+  // does not cause issues on utf8mb4 collations
+  description     String   @db.Text
   profileImageUrl String?
 
-  // ── Event discovery fields (added Day 2) ──────────────────────────
-  isEvent        Boolean      @default(false)  // true = this entry is a live/upcoming event
-  latitude       Float?                        // GPS latitude  (required when isEvent = true)
-  longitude      Float?                        // GPS longitude (required when isEvent = true)
-  eventStartTime DateTime?                     // Nullable – only for events
-  eventEndTime   DateTime?                     // Nullable – only for events
-  activeStatus   ActiveStatus @default(UPCOMING)
+  // ── Event discovery fields ──────────────────────────────────────────────
+  isEvent        Boolean   @default(false)
+  latitude       Float?
+  longitude      Float?
+  eventStartTime DateTime?
+  eventEndTime   DateTime?
+  // Valid values: "LIVE" | "UPCOMING" | "ENDED"
+  activeStatus   String    @default("UPCOMING")
 
-  createdAt       DateTime       @default(now())
-  updatedAt       DateTime       @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   // Relations
   user     User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-  bookings Booking[] // A vendor can have many bookings
+  bookings Booking[]
 
   @@map("vendors")
 }
 
 model Booking {
-  id          String        @id @default(cuid())
-  plannerId   String
-  vendorId    String
-  eventDate   DateTime
-  guestCount  Int
-  status      BookingStatus @default(PENDING)
-  message     String
-  createdAt   DateTime      @default(now())
-  updatedAt   DateTime      @updatedAt
+  id         String   @id @default(cuid())
+  plannerId  String
+  vendorId   String
+  eventDate  DateTime
+  guestCount Int
+  // Valid values: "PENDING" | "CONFIRMED" | "CANCELED"
+  status     String   @default("PENDING")
+  message    String   @db.Text
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
 
   // Relations
   planner User   @relation(fields: [plannerId], references: [id], onDelete: Cascade)

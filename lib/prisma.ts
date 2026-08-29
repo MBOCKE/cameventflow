@@ -1,6 +1,6 @@
 // lib/prisma.ts
-// Prisma client singleton – safe for Next.js hot-reload in development.
-// In production a single instance is created at module load time.
+// Standard Prisma client singleton – no driver adapter needed for MySQL.
+// Safe for Next.js hot-reload in development via the globalThis pattern.
 
 import { PrismaClient } from "@prisma/client";
 

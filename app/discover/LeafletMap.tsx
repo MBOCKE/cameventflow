@@ -1,148 +1,260 @@
 "use client";
 
 // app/discover/LeafletMap.tsx
-// The actual Leaflet map rendered inside a dynamic() boundary so it is
-// never executed during SSR.  Imported exclusively by DiscoverMapClient.
+// Imperative Leaflet map — initialised exactly once via raw Leaflet API.
+// Fully interactive: drag, pinch-zoom, scroll-zoom, touch gestures.
 
 import "leaflet/dist/leaflet.css";
-import { useEffect } from "react";
-import { MapContainer, TileLayer, Marker, Popup, useMap } from "react-leaflet";
-import L from "leaflet";
+import { useEffect, useRef } from "react";
+import type { Map as LMap } from "leaflet";
+import { createRoot } from "react-dom/client";
 import { EventPopupCard, type EventPin } from "./DiscoverMapClient";
 
-// ── Fix Leaflet's broken default icon paths in webpack/Next.js ───────────────
-// Leaflet tries to resolve icon images relative to its own CSS file which
-// doesn't work in a bundled environment. We point it at the CDN instead.
-delete (L.Icon.Default.prototype as unknown as Record<string, unknown>)._getIconUrl;
-L.Icon.Default.mergeOptions({
-  iconRetinaUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png",
-  iconUrl:       "https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png",
-  shadowUrl:     "https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png",
-});
-
-// ── Custom coloured div-icons for LIVE vs UPCOMING pins ──────────────────────
-function makePin(color: string): L.DivIcon {
-  return L.divIcon({
-    className: "",   // suppress Leaflet's default white square
-    html: `
-      <div style="
-        position: relative;
-        width: 36px;
-        height: 36px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        border-radius: 50%;
-        background: ${color};
-        box-shadow: 0 2px 8px rgba(0,0,0,0.35);
-        cursor: pointer;
-      ">
-        <!-- pulse ring (LIVE only) -->
-        ${color === "#ef4444" ? `
-          <span style="
-            position: absolute;
-            inset: 0;
-            border-radius: 50%;
-            background: ${color};
-            opacity: 0.5;
-            animation: leaflet-pin-pulse 1.8s ease-out infinite;
-          "></span>
-        ` : ""}
-        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24"
-          fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M20 10c0 6-8 12-8 12S4 16 4 10a8 8 0 1 1 16 0Z"/>
-          <circle cx="12" cy="10" r="3"/>
-        </svg>
-      </div>
-    `,
-    iconSize:   [36, 36],
-    iconAnchor: [18, 36],   // anchor at bottom-centre of the pin
-    popupAnchor:[0, -36],   // popup opens above the pin
-  });
+interface Props {
+  events:     EventPin[];
+  onPinClick: (ev: EventPin) => void;
+  onClose:    () => void;
+  onError:    () => void;
 }
 
-const LIVE_ICON     = makePin("#ef4444");   // red-500
-const UPCOMING_ICON = makePin("#f59e0b");   // amber-400
-
-// ── Keyboard zoom fix – prevents Leaflet swallowing page keyboard events ──────
-function KeyboardFix() {
-  const map = useMap();
-  useEffect(() => {
-    map.keyboard.disable();
-  }, [map]);
-  return null;
-}
-
-// ── Props ─────────────────────────────────────────────────────────────────────
-interface LeafletMapProps {
-  events:        EventPin[];
-  selectedEvent: EventPin | null;
-  onPinClick:    (ev: EventPin) => void;
-  onClose:       () => void;
-  onError:       () => void;
-}
-
-// ── Component ─────────────────────────────────────────────────────────────────
-export default function LeafletMap({
+export default function LeafletMapComponent({
   events,
-  selectedEvent,
   onPinClick,
   onClose,
   onError,
-}: LeafletMapProps) {
-  // Surface errors to the parent so it can swap in the StaticMapFallback
+}: Props) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const mapRef       = useRef<LMap | null>(null);
+
   useEffect(() => {
-    const handler = (e: ErrorEvent) => {
-      if (e.message?.toLowerCase().includes("leaflet")) onError();
+    if (!containerRef.current || mapRef.current) return;
+
+    let destroyed = false;
+    let watchId: number | null = null;
+
+    async function initMap() {
+      try {
+        const L = (await import("leaflet")).default;
+        if (destroyed || !containerRef.current) return;
+
+        // Fix default icon resolution in webpack
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        delete (L.Icon.Default.prototype as any)._getIconUrl;
+        L.Icon.Default.mergeOptions({
+          iconRetinaUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png",
+          iconUrl:       "https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png",
+          shadowUrl:     "https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png",
+        });
+
+        // ── Get user location BEFORE creating the map ─────────────────
+        // This way the map opens centered on the user immediately.
+        // Timeout after 3 s so a slow/denied response doesn't stall init.
+        const getUserLocation = (): Promise<[number, number]> =>
+          new Promise((resolve) => {
+            if (!navigator.geolocation) {
+              resolve([3.848, 11.502]); // fallback: Yaoundé
+              return;
+            }
+            const timer = setTimeout(() => resolve([3.848, 11.502]), 3000);
+            navigator.geolocation.getCurrentPosition(
+              (pos) => {
+                clearTimeout(timer);
+                resolve([pos.coords.latitude, pos.coords.longitude]);
+              },
+              () => {
+                clearTimeout(timer);
+                resolve([3.848, 11.502]); // denied or error → Yaoundé
+              },
+              { timeout: 3000, maximumAge: 30000, enableHighAccuracy: true }
+            );
+          });
+
+        const userCenter = await getUserLocation();
+        if (destroyed || !containerRef.current) return;
+
+        // ── Create map centered on user's real position ───────────────
+        const map = L.map(containerRef.current, {
+          center:              userCenter,
+          zoom:                14,              // street-level, feels local
+          zoomControl:         true,
+          scrollWheelZoom:     true,
+          doubleClickZoom:     true,
+          touchZoom:           true,
+          dragging:            true,
+          tap:                 true,
+          tapTolerance:        15,
+          keyboard:            true,
+          boxZoom:             true,
+          inertia:             true,
+          inertiaDeceleration: 3000,
+          worldCopyJump:       true,
+        });
+
+        mapRef.current = map;
+
+        // ── OSM tile layer ────────────────────────────────────────────
+        L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+          attribution:
+            '&copy; <a href="https://www.openstreetmap.org/copyright" ' +
+            'target="_blank" rel="noopener noreferrer">OpenStreetMap</a> contributors',
+          maxZoom:     19,
+          tileSize:    256,
+          zoomOffset:  0,
+        }).addTo(map);
+
+        // ── Show user dot immediately (location already known) ───────
+        // Draw the blue "you are here" dot at the map center
+        const userDotIcon = L.divIcon({
+          className: "",
+          html: `<div style="width:16px;height:16px;border-radius:50%;
+            background:#2563EB;border:3px solid white;
+            box-shadow:0 0 0 3px rgba(37,99,235,0.35);"></div>`,
+          iconSize:   [16, 16],
+          iconAnchor: [8, 8],
+        });
+
+        const userMarker = L.marker(userCenter, { icon: userDotIcon, zIndexOffset: 1000 })
+          .addTo(map)
+          .bindTooltip("You are here", { permanent: false, direction: "top" });
+
+        L.circle(userCenter, {
+          radius:      40,
+          color:       "#2563EB",
+          fillColor:   "#3b82f6",
+          fillOpacity: 0.12,
+          weight:      2,
+        }).addTo(map);
+
+        // Keep dot updated if user moves (watch position)
+        if (navigator.geolocation) {
+          watchId = navigator.geolocation.watchPosition(
+            (pos) => {
+              if (destroyed) return;
+              const newPos: [number, number] = [pos.coords.latitude, pos.coords.longitude];
+              userMarker.setLatLng(newPos);
+            },
+            () => {},
+            { enableHighAccuracy: true, maximumAge: 10000 }
+          );
+        }
+
+        // ── Icon factory ──────────────────────────────────────────────
+        const makeIcon = (color: string, pulse: boolean) =>
+          L.divIcon({
+            className: "",
+            html: `
+              <div style="
+                position:relative;width:40px;height:40px;
+                display:flex;align-items:center;justify-content:center;
+                border-radius:50%;background:${color};
+                box-shadow:0 3px 10px rgba(0,0,0,0.45);cursor:pointer;
+              ">
+                ${pulse ? `
+                  <span style="
+                    position:absolute;inset:0;border-radius:50%;
+                    background:${color};opacity:0.45;
+                    animation:leaflet-pin-pulse 1.8s ease-out infinite;
+                  "></span>
+                  <span style="
+                    position:absolute;inset:0;border-radius:50%;
+                    background:${color};opacity:0.25;
+                    animation:leaflet-pin-pulse 1.8s ease-out infinite 0.6s;
+                  "></span>
+                ` : ""}
+                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20"
+                  viewBox="0 0 24 24" fill="none" stroke="white"
+                  stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M20 10c0 6-8 12-8 12S4 16 4 10a8 8 0 1 1 16 0Z"/>
+                  <circle cx="12" cy="10" r="3"/>
+                </svg>
+              </div>`,
+            iconSize:    [40, 40],
+            iconAnchor:  [20, 40],
+            popupAnchor: [0, -44],
+          });
+
+        // ── Add markers ───────────────────────────────────────────────
+        events.forEach((ev) => {
+          const icon = makeIcon(
+            ev.activeStatus === "LIVE" ? "#ef4444" : "#f59e0b",
+            ev.activeStatus === "LIVE"
+          );
+
+          const marker = L.marker([ev.latitude, ev.longitude], {
+            icon,
+            riseOnHover: true,
+          }).addTo(map);
+
+          // Each popup gets a fresh React root
+          const popupEl = document.createElement("div");
+          let popupRoot: ReturnType<typeof createRoot> | null = null;
+
+          marker.bindPopup(
+            L.popup({
+              minWidth:    296,
+              maxWidth:    296,
+              closeButton: false,
+              className:   "leaflet-popup-reset",
+              autoPanPadding: [20, 80],  // keep popup away from overlays
+            }).setContent(popupEl)
+          );
+
+          marker.on("click", () => onPinClick(ev));
+
+          marker.on("popupopen", () => {
+            popupRoot = createRoot(popupEl);
+            popupRoot.render(
+              <EventPopupCard
+                event={ev}
+                onClose={() => {
+                  marker.closePopup();
+                  onClose();
+                }}
+              />
+            );
+          });
+
+          marker.on("popupclose", () => {
+            // Defer unmount so React finishes the current render cycle first
+            setTimeout(() => {
+              popupRoot?.unmount();
+              popupRoot = null;
+            }, 0);
+          });
+        });
+
+        // Force a size recalc in case the container was zero-sized at init
+        setTimeout(() => map.invalidateSize(), 100);
+
+      } catch (err) {
+        console.error("[LeafletMap] init error:", err);
+        if (!destroyed) onError();
+      }
+    }
+
+    initMap();
+
+    return () => {
+      destroyed = true;
+      if (watchId !== null) navigator.geolocation.clearWatch(watchId);
+      if (mapRef.current) {
+        mapRef.current.remove();
+        mapRef.current = null;
+      }
     };
-    window.addEventListener("error", handler);
-    return () => window.removeEventListener("error", handler);
-  }, [onError]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   return (
-    <MapContainer
-      center={[3.848, 11.502]}   // Yaoundé, Cameroon
-      zoom={6}
-      style={{ height: "100vh", width: "100%" }}
-      zoomControl={false}         // we use the browser's pinch-zoom on mobile
-      attributionControl={true}
-    >
-      {/* ── OpenStreetMap tile layer – no API key required ──────────── */}
-      <TileLayer
-        url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-        attribution='&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">OpenStreetMap</a> contributors'
-        maxZoom={19}
-      />
-
-      {/* Disable keyboard capture so the search bar still works */}
-      <KeyboardFix />
-
-      {/* ── Event markers ────────────────────────────────────────────── */}
-      {events.map((ev) => (
-        <Marker
-          key={ev.id}
-          position={[ev.latitude, ev.longitude]}
-          icon={ev.activeStatus === "LIVE" ? LIVE_ICON : UPCOMING_ICON}
-          eventHandlers={{
-            click: () => onPinClick(ev),
-          }}
-        >
-          {/* Leaflet Popup wraps EventPopupCard */}
-          <Popup
-            minWidth={288}
-            maxWidth={288}
-            closeButton={false}
-            className="leaflet-popup-reset"
-          >
-            <EventPopupCard
-              event={ev}
-              onClose={() => {
-                onClose();
-              }}
-            />
-          </Popup>
-        </Marker>
-      ))}
-    </MapContainer>
+    <div
+      ref={containerRef}
+      style={{
+        height:   "100vh",
+        width:    "100%",
+        position: "relative",   // required by Leaflet for correct event mapping
+        zIndex:   0,
+      }}
+      aria-label="Interactive event map"
+    />
   );
 }
