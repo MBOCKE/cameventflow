@@ -11,14 +11,13 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { City, VendorCategory } from "@prisma/client";
 
 export async function GET(req: NextRequest) {
   try {
     const { searchParams } = req.nextUrl;
 
-    const city      = searchParams.get("city")      as City | null;
-    const category  = searchParams.get("category")  as VendorCategory | null;
+    const city      = searchParams.get("city")      as string | null;
+    const category  = searchParams.get("category")  as string | null;
     const maxPrice  = searchParams.get("maxPrice");
     const type      = searchParams.get("type"); // "events" | null
 

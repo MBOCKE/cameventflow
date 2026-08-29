@@ -17,13 +17,12 @@ import {
 } from "@/components/ui/dialog";
 import { TalkJSChat, type TalkJSUser } from "@/components/TalkJSChat";
 
-type BookingStatus = "PENDING" | "CONFIRMED" | "CANCELED";
-
+// Status is a plain string in the MySQL schema (no Prisma enum)
 interface Lead {
   id:         string;
   eventDate:  Date;
   guestCount: number;
-  status:     BookingStatus;
+  status:     string;   // string from DB
   message:    string;
   planner: {
     id:    string;
@@ -33,7 +32,7 @@ interface Lead {
   };
 }
 
-const STATUS_VARIANT: Record<BookingStatus, "warning" | "success" | "destructive"> = {
+const STATUS_VARIANT: Record<string, "warning" | "success" | "destructive"> = {
   PENDING:   "warning",
   CONFIRMED: "success",
   CANCELED:  "destructive",

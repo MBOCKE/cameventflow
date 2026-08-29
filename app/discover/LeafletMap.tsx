@@ -81,8 +81,6 @@ export default function LeafletMapComponent({
           doubleClickZoom:     true,
           touchZoom:           true,
           dragging:            true,
-          tap:                 true,
-          tapTolerance:        15,
           keyboard:            true,
           boxZoom:             true,
           inertia:             true,

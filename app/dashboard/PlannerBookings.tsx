@@ -7,13 +7,14 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 
+// Status is a plain string in the MySQL schema (no Prisma enum)
 type BookingStatus = "PENDING" | "CONFIRMED" | "CANCELED";
 
 interface Booking {
   id:         string;
   eventDate:  Date;
   guestCount: number;
-  status:     BookingStatus;
+  status:     string;   // string from DB, narrowed via STATUS_VARIANT lookup
   message:    string;
   vendor: {
     id:   string;
@@ -22,7 +23,7 @@ interface Booking {
   };
 }
 
-const STATUS_VARIANT: Record<BookingStatus, "warning" | "success" | "destructive"> = {
+const STATUS_VARIANT: Record<string, "warning" | "success" | "destructive"> = {
   PENDING:   "warning",
   CONFIRMED: "success",
   CANCELED:  "destructive",

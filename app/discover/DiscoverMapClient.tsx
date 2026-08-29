@@ -309,7 +309,6 @@ export function DiscoverMapClient() {
         /* Real Leaflet map — raw imperative API, initialised once */
         <LeafletMap
           events={filteredEvents}
-          selectedEvent={selectedEvent}
           onPinClick={handlePinClick}
           onClose={() => setSelectedEvent(null)}
           onError={() => setLeafletError(true)}

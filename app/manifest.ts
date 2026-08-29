@@ -29,7 +29,6 @@ export default function manifest(): MetadataRoute.Manifest {
         type:    "image/svg+xml",
         purpose: "maskable",
       },
-      // "any" purpose entries so browsers use them for splash screens too
       {
         src:     "/icons/icon-192.svg",
         sizes:   "192x192",
@@ -41,24 +40,6 @@ export default function manifest(): MetadataRoute.Manifest {
         sizes:   "512x512",
         type:    "image/svg+xml",
         purpose: "any",
-      },
-    ],
-    screenshots: [
-      {
-        src:          "/screenshots/home.png",
-        sizes:        "390x844",
-        type:         "image/png",
-        // @ts-expect-error – form_factor is valid per spec but not yet in Next.js types
-        form_factor:  "narrow",
-        label:        "Home – Browse vendors and events",
-      },
-      {
-        src:          "/screenshots/discover.png",
-        sizes:        "390x844",
-        type:         "image/png",
-        // @ts-expect-error
-        form_factor:  "narrow",
-        label:        "Discover – Live event map",
       },
     ],
   };

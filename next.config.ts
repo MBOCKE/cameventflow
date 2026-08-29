@@ -2,16 +2,15 @@ import type { NextConfig } from "next";
 import withPWAInit from "@ducanh2912/next-pwa";
 
 const withPWA = withPWAInit({
-  dest:              "public",       // output: public/sw.js + workbox files
-  disable:           process.env.NODE_ENV === "development", // no SW in dev
-  register:          true,           // auto-register the SW in the browser
-  skipWaiting:       true,           // activate new SW immediately on update
-  reloadOnOnline:    true,           // reload page when connection restores
+  dest:    "public",
+  disable: process.env.NODE_ENV === "development",
+  register: true,
   fallbacks: {
-    document: "/offline",            // show /offline page when navigating offline
+    document: "/offline",
   },
   workboxOptions: {
-    // Cache strategies ─────────────────────────────────────────────────────
+    skipWaiting: true,
+    clientsClaim: true,
     runtimeCaching: [
       // 1. OSM map tiles – CacheFirst (tiles rarely change)
       {

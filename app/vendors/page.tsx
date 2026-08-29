@@ -5,7 +5,6 @@ import { Suspense } from "react";
 import { prisma } from "@/lib/prisma";
 import { VendorCard } from "@/components/VendorCard";
 import { VendorFilters } from "./VendorFilters";
-import type { City, VendorCategory } from "@prisma/client";
 
 interface SearchParams {
   city?:     string;
@@ -19,8 +18,8 @@ async function fetchVendors(params: SearchParams) {
 
   return prisma.vendor.findMany({
     where: {
-      ...(city     && { city:     city     as City }),
-      ...(category && { category: category as VendorCategory }),
+      ...(city     && { city }),
+      ...(category && { category }),
       ...(maxPrice && { basePrice: { lte: parseFloat(maxPrice) } }),
     },
     include: {

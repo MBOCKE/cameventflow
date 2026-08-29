@@ -1,7 +1,7 @@
 # CamEventFlow – Build Report
 
 > Generated iteratively as each task was completed.  
-> Last updated: Database layer stabilised on MySQL / XAMPP (24 August 2026)
+> Last updated: PWA conversion + all post-Day-5 fixes (29 August 2026)
 
 ---
 
@@ -1257,3 +1257,201 @@ npm run dev
 4. Add `previewFeatures = ["driverAdapters"]` back to the generator block
 5. Update `lib/prisma.ts` to use the TiDB adapter (same pattern as the previous libSQL implementation)
 6. No schema changes required — the MySQL-compatible schema works as-is on TiDB
+
+---
+
+## ✅ Post-Sprint Fixes & Enhancements
+
+### 1 – Supabase `next/headers` Client-Side Crash
+
+**Problem:** `lib/supabase.ts` imported `cookies` from `next/headers` at the top level. `AuthProvider` (a `"use client"` component) imported from that file, pulling `next/headers` into the browser bundle and crashing compilation.
+
+**Fix:** Split into two files:
+
+| File                     | Contains                                  | Safe to import in                 |
+| ------------------------ | ----------------------------------------- | --------------------------------- |
+| `lib/supabase.ts`        | `createServerClient`, `getSupabaseUser`   | Server Components, Route Handlers |
+| `lib/supabase.client.ts` | `createBrowserClient`, `initAuthListener` | `"use client"` components only    |
+
+Files updated to use `lib/supabase.client`:
+
+- `components/AuthProvider.tsx`
+- `app/login/page.tsx`
+- `app/signup/page.tsx`
+- `app/onboarding/vendor/page.tsx`
+
+---
+
+### 2 – Auth Navigation Flow Fixes
+
+**Problems:**
+
+1. After signup, users were redirected to `/login` instead of their dashboard — Supabase returned a user but no session (email confirmation required), and the code redirected anyway.
+2. Login returned "email not recognised" for unconfirmed accounts with no actionable message.
+
+**Fixes in `app/signup/page.tsx`:**
+
+- Check `data.session` after `signUp()`. If `null` → show a "Check your email" screen instead of redirecting.
+- Added resend confirmation email button on that screen.
+
+**Fixes in `app/login/page.tsx`:**
+
+- `friendlyError()` function maps raw Supabase error strings to plain English.
+- Detects `"email not confirmed"` specifically and shows an inline "Resend confirmation email" button.
+- `useSearchParams` wrapped in `<Suspense>` (required by Next.js 15).
+- On successful login, fires `POST /api/users` as a safety net in case the DB row was never created.
+- Respects `?next=` redirect param set by middleware.
+
+---
+
+### 3 – `.env.local` Override Bug
+
+**Problem:** `.env.local` contained an old Neon `postgresql://` `DATABASE_URL` which silently overrode the correct `mysql://` value in `.env`. Next.js always prioritises `.env.local`.
+
+**Fix:** Rewrote `.env.local` to use `DATABASE_URL="mysql://root:@127.0.0.1:3306/cameventflow"` and removed all stale Neon/Turso variables.
+
+---
+
+### 4 – Leaflet "Map container is already initialized" (Three attempts)
+
+**Root cause:** `react-leaflet`'s `<MapContainer>` uses React reconciliation which reuses DOM nodes across hot-reloads without unmounting them. Leaflet stamps `_leaflet_id` on the DOM node on first init and throws when it sees the stamp on re-init.
+
+**Final fix:** Abandoned `react-leaflet` entirely. Rewrote `app/discover/LeafletMap.tsx` using the raw imperative Leaflet API:
+
+- `L.map()` called once inside `useEffect` with a `mapRef.current` guard.
+- `map.remove()` called in the cleanup function — Leaflet's own teardown, guaranteed before next mount.
+- Leaflet imported dynamically (`await import("leaflet")`) so it never runs during SSR.
+- Component loaded via `next/dynamic({ ssr: false })` to enforce the browser-only boundary.
+
+Additional fixes:
+
+- Removed `import "leaflet/dist/leaflet.css"` from `DiscoverMapClient.tsx` (parent file) — kept only in `LeafletMap.tsx` inside the dynamic boundary.
+- Icon fix and pin creation moved inside `useEffect`, not at module scope.
+
+---
+
+### 5 – Map Not Interactive (Drag / Zoom / Touch Broken)
+
+**Problems:**
+
+1. Overlay divs (`z-[1000]`) stretched across the full screen and intercepted all pointer events before they reached the map.
+2. Container `div` missing `position: relative` — Leaflet requires it to correctly translate mouse/touch coordinates.
+3. `keyboard: false` was too aggressive, disabling more than intended.
+
+**Fixes:**
+
+- All overlay wrapper divs set to `pointer-events-none`; only the actual buttons inside use `pointer-events-auto`.
+- Container div given `position: relative` inline style.
+- All map interactions explicitly enabled: `dragging`, `scrollWheelZoom`, `touchZoom`, `doubleClickZoom`, `tap`, `inertia`, `boxZoom`, `keyboard`.
+- Initial zoom raised from `6` (country) to `14` (street level).
+
+---
+
+### 6 – Immediate User Geolocation on Map Open
+
+**Problem:** Map opened on a hardcoded Yaoundé center, then `getCurrentPosition` fired and called `flyTo` — users saw the wrong location first, then a jarring animation.
+
+**Fix:** `getUserLocation()` promise resolves **before** `L.map()` is called:
+
+- 3-second timeout races `getCurrentPosition`; if denied or slow → falls back to Yaoundé silently.
+- Map is created with `center: userCenter` from the first render — no jump.
+- Blue "you are here" dot + accuracy circle added immediately at the known position.
+- `watchPosition` keeps the dot updated as the user moves.
+- `clearWatch` called in cleanup to prevent memory leaks.
+
+---
+
+### 7 – `useRouter` Crash Inside Leaflet Popup
+
+**Problem:** `EventPopupCard` used `useRouter()` but was rendered via `createRoot()` into a detached DOM node managed by Leaflet — outside the Next.js `<AppRouterContext>` provider tree. Any context-dependent hook throws in that environment.
+
+**Fix:**
+
+- Removed `useRouter` from `EventPopupCard`.
+- Replaced `<Button onClick={() => router.push(...)}>` with a plain `<a href="/vendors/${event.id}">` anchor — no router context needed.
+- Replaced all Tailwind class names in `EventPopupCard` with inline styles (detached nodes are also outside Tailwind's JIT scope).
+
+---
+
+### 8 – Filter Button Highlight
+
+Active filter buttons now have `ring-2 ring-white ring-offset-1 scale-105` applied so the selected state is visually distinct from inactive buttons. Inactive buttons dimmed to `text-white/70` to increase contrast.
+
+---
+
+### 9 – Production Demo Seed (`prisma/seed.ts`)
+
+Complete rewrite with realistic Cameroonian data:
+
+- **8 Planners** — Marie Ngassa, Jean-Pierre Eto'o, Aïcha Bello, Boris Kamga, Sandrine Ngo Bassa, Paul Mbianda, Céline Ateba, Hervé Fouda
+- **10 Vendors** — 6 regular profiles (Palace des Fêtes Akwa, Traiteur Excellence, Déco Élégance, Son & Lumière Pro, Photo Mémoire Studio, Buea Mountain Garden), 4 event vendors with real Douala/Yaoundé GPS coordinates
+- **22 Bookings** — 15 CONFIRMED (past + future), 5 PENDING, 2 CANCELED; all with realistic French-language messages
+- All users have `demo-supabase-id-N` placeholder IDs — no real Supabase auth required to view data
+- Fully idempotent — safe to re-run
+
+---
+
+### 10 – PWA Conversion
+
+**Package:** `@ducanh2912/next-pwa@10.2.9` (the maintained Next.js 15-compatible fork of `next-pwa`).
+
+**Files created / modified:**
+
+| File                         | Change                                                                              |
+| ---------------------------- | ----------------------------------------------------------------------------------- |
+| `package.json`               | Added `@ducanh2912/next-pwa`                                                        |
+| `next.config.ts`             | Wrapped with `withPWA`; disabled in dev; 4 runtime caching strategies               |
+| `app/manifest.ts`            | `MetadataRoute.Manifest` — name, icons (maskable + any), display, colors            |
+| `app/offline/page.tsx`       | Offline fallback page shown by SW when navigation fails                             |
+| `public/sw.js`               | Fallback Network-First SW (overwritten by Workbox at build time)                    |
+| `components/PWARegister.tsx` | Deferred SW registration, `updatefound` handler                                     |
+| `app/layout.tsx`             | `manifest` → `/manifest.webmanifest`, `appleWebApp` iOS metadata, `<PWARegister />` |
+
+**Runtime caching strategies:**
+
+- OSM map tiles → CacheFirst (30 days)
+- API routes → NetworkFirst (10s timeout, 24h cache)
+- Static assets (images, fonts, icons) → CacheFirst (30 days)
+- Google Fonts → StaleWhileRevalidate (1 year)
+
+**Build fix:** Removed `@ts-expect-error` directives and `screenshots` field from `app/manifest.ts` — Next.js's metadata route webpack loader does a raw parse before TypeScript runs, making TypeScript comment directives in that file position cause a parse failure.
+
+---
+
+### Current Full Architecture
+
+| Layer                 | Provider                         | Notes                                        |
+| --------------------- | -------------------------------- | -------------------------------------------- |
+| Database (local dev)  | MySQL via XAMPP                  | `DATABASE_URL` in `.env.local`               |
+| Database (production) | TiDB Cloud (MySQL-compatible)    | Same schema, swap connection string          |
+| Auth                  | Supabase                         | `lib/supabase.ts` + `lib/supabase.client.ts` |
+| Storage               | Supabase                         | `vendor-images` bucket                       |
+| Map                   | OpenStreetMap (Leaflet)          | Imperative API, no API key                   |
+| Messaging             | TalkJS                           | `components/TalkJSChat.tsx`                  |
+| Notifications         | Make.com                         | `lib/make.ts` + `/api/automate`              |
+| PWA                   | `@ducanh2912/next-pwa` + Workbox | SW cached tiles, API, assets                 |
+
+---
+
+### Commands Reference
+
+```powershell
+# Install all dependencies (including PWA package)
+npm install
+
+# Generate Prisma client
+npx prisma generate
+
+# Create tables in MySQL
+npx prisma db push
+
+# Populate demo data (18 users, 22 bookings, 4 map events)
+npm run db:seed
+
+# Development (PWA disabled, no SW)
+npm run dev
+
+# Production build (generates Workbox SW in public/)
+npm run build
+npm start
+```

@@ -24,12 +24,11 @@ export async function GET(req: NextRequest) {
     const results = await prisma.vendor.findMany({
       where: {
         OR: [
-          // Match against the linked user's name (vendor/event display name)
-          { user: { name: { contains: q, mode: "insensitive" } } },
-          // Match against free-text description
-          { description: { contains: q, mode: "insensitive" } },
-          // Match against city name as a string (cast via raw comparison)
-          { city: { equals: q as never } },
+          // MySQL utf8mb4_unicode_ci collation is case-insensitive by default —
+          // no mode:"insensitive" needed (that is PostgreSQL-only)
+          { user: { name: { contains: q } } },
+          { description: { contains: q } },
+          { city: { contains: q } },
         ],
       },
       include: {

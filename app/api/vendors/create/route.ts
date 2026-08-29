@@ -4,11 +4,20 @@
 //
 // Creates a Vendor row in the DB linked to the authenticated user.
 // Returns 409 if the user already has a vendor profile.
+//
+// Note: VendorCategory and City are plain strings in the MySQL schema
+// (SQLite/MySQL don't support Prisma enums). Validation is done against
+// hard-coded arrays instead.
 
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getSupabaseUser } from "@/lib/supabase";
-import { VendorCategory, City } from "@prisma/client";
+
+const VALID_CATEGORIES = ["Venue", "Caterer", "Decorator", "Sound", "Photographer"] as const;
+const VALID_CITIES     = ["Douala", "Yaounde", "Buea"] as const;
+
+type VendorCategory = typeof VALID_CATEGORIES[number];
+type City           = typeof VALID_CITIES[number];
 
 export async function POST(req: NextRequest) {
   try {
@@ -19,7 +28,7 @@ export async function POST(req: NextRequest) {
     }
 
     const user = await prisma.user.findUnique({
-      where:  { supabaseId: supabaseUser.id },
+      where:   { supabaseId: supabaseUser.id },
       include: { vendor: true },
     });
     if (!user) {
@@ -45,13 +54,10 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const validCategories: VendorCategory[] = ["Venue", "Caterer", "Decorator", "Sound", "Photographer"];
-    const validCities: City[]               = ["Douala", "Yaounde", "Buea"];
-
-    if (!validCategories.includes(category as VendorCategory)) {
+    if (!(VALID_CATEGORIES as readonly string[]).includes(category)) {
       return NextResponse.json({ error: `Invalid category: ${category}` }, { status: 400 });
     }
-    if (!validCities.includes(city as City)) {
+    if (!(VALID_CITIES as readonly string[]).includes(city)) {
       return NextResponse.json({ error: `Invalid city: ${city}` }, { status: 400 });
     }
 
@@ -65,12 +71,12 @@ export async function POST(req: NextRequest) {
       data: {
         userId:          user.id,
         category:        category as VendorCategory,
-        city:            city as City,
+        city:            city     as City,
         basePrice:       parsedPrice,
         description,
         profileImageUrl: profileImageUrl ?? null,
-        latitude:        latitude   != null ? parseFloat(latitude)   : null,
-        longitude:       longitude  != null ? parseFloat(longitude)  : null,
+        latitude:        latitude  != null ? parseFloat(latitude)  : null,
+        longitude:       longitude != null ? parseFloat(longitude) : null,
         availability:    true,
         isEvent:         false,
         activeStatus:    "UPCOMING",

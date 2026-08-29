@@ -52,7 +52,8 @@ export function TalkJSChat({
       return;
     }
 
-    let session: import("talkjs").Session | null = null;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let session: any = null;
     let destroyed = false;
 
     // TalkJS SDK must be initialised inside Talk.ready

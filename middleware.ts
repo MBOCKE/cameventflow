@@ -38,7 +38,7 @@ export async function middleware(request: NextRequest) {
         getAll() {
           return request.cookies.getAll();
         },
-        setAll(cookiesToSet) {
+        setAll(cookiesToSet: { name: string; value: string; options?: Record<string, unknown> }[]) {
           // Write cookies to both the request (for the current handler) and
           // the response (so the browser receives the refreshed token).
           cookiesToSet.forEach(({ name, value }) =>
